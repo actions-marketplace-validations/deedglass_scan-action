@@ -1,0 +1,63 @@
+{
+  "object": "scan_report",
+  "version": 1,
+  "scanned_at": "2026-10-11T08:56:32Z",
+  "deedglass_version": "0.1.0-dev",
+  "dir": "/tmp/cleanrepo",
+  "offline": true,
+  "score": {
+    "grade": "A",
+    "points": 100,
+    "deductions": [],
+    "formula_version": 1,
+    "unchecked_write_paths": 0,
+    "database_checked": false,
+    "fix_first": ""
+  },
+  "summary": {
+    "configs": 0,
+    "mcp_servers": 0,
+    "write_capable_tools": 0,
+    "tables_can_change": 0,
+    "findings": {
+      "high": 0,
+      "info": 0,
+      "low": 0,
+      "medium": 0
+    }
+  },
+  "configs": null,
+  "dependencies": null,
+  "env_names": null,
+  "tools": null,
+  "findings": [],
+  "postgres": null,
+  "policies": [
+    {
+      "starter": "postgres-safe",
+      "rule": "block-destructive-sql",
+      "why": "DROP and TRUNCATE never run, whatever the agent sends.",
+      "yaml": "deedglass: policy/v1\nname: scan-block-destructive-sql\ndescription: Suggested by deedglass scan from the postgres-safe starter.\n\ndefaults:\n  decision: deny\n  reason: No rule allows this action. Add a rule in Console › Policies to allow it.\n\nrules:\n  - id: block-destructive-sql\n    match: { connector_type: postgres }\n    when: sql.kind in [\"drop\", \"truncate\"]\n    decision: deny\n    reason: DROP and TRUNCATE are never allowed for agents.\n    notify: [slack]\n"
+    },
+    {
+      "starter": "postgres-safe",
+      "rule": "writes-need-approval",
+      "why": "Writes wait for a person in Console › Approvals.",
+      "yaml": "deedglass: policy/v1\nname: scan-writes-need-approval\ndescription: Suggested by deedglass scan from the postgres-safe starter.\n\ndefaults:\n  decision: deny\n  reason: No rule allows this action. Add a rule in Console › Policies to allow it.\n\nrules:\n  - id: writes-need-approval\n    match: { tool: postgres.execute }\n    when: sql.category == \"write\"\n    decision: require_approval\n    reason: Writes to this database wait for a human. An admin can approve in Console › Approvals.\n    approval: { approvers: [role:admin], required: 1, expires_in: 30m }\n    notify: [email, slack]\n    verify: L2\n"
+    },
+    {
+      "starter": "postgres-safe",
+      "rule": "agent-rate",
+      "why": "More than 60 calls a minute from one agent waits for the next minute.",
+      "yaml": "deedglass: policy/v1\nname: scan-agent-rate\ndescription: Suggested by deedglass scan from the postgres-safe starter.\n\ndefaults:\n  decision: deny\n  reason: No rule allows this action. Add a rule in Console › Policies to allow it.\n\nbudgets:\n  - id: agent-rate\n    window: minute\n    max_calls: 60\n"
+    }
+  ],
+  "notes": [],
+  "footer": "Full report with fixes: deedglass.com/pro ($29 once).",
+  "took_ms": 0,
+  "walk": {
+    "files": 0,
+    "skipped_big": 0,
+    "stopped": false
+  }
+}

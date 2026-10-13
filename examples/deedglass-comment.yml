@@ -1,0 +1,16 @@
+# .github/workflows/deedglass-comment.yml: posts or edits one comment on the pull request, in this
+# repository only. It never checks out pull request code and validates the scan result first.
+name: Deedglass comment
+on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] never checks out PR code; the artifact is validated
+    workflows: ["Deedglass scan"]
+    types: [completed]
+permissions: {}
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: deedglass/scan-action/comment@v1

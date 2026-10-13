@@ -1,0 +1,106 @@
+name: Deedglass scan
+description: Grade the agent setup in this repository (blast radius A to F) on every pull request. Read-only; nothing sent to Deedglass.
+author: Deedglass
+branding:
+  icon: shield
+  color: purple
+inputs:
+  version:
+    description: The deedglass release to run.
+    default: "0.1.0"
+  licence:
+    description: A Deedglass Pro licence (only for comments on private repositories). Pass it from a secret.
+    default: ""
+  fail-under:
+    description: Fail the job when the grade is below this (A, B, C or D). Empty never fails.
+    default: ""
+  sarif:
+    description: "Upload SARIF to code scanning: auto, always or never."
+    default: auto
+  dir:
+    description: The directory to scan.
+    default: "."
+outputs:
+  grade:
+    description: The grade of the pull request's head.
+    value: ${{ steps.diff.outputs.grade }}
+  points:
+    description: The points of the head (0 to 100).
+    value: ${{ steps.diff.outputs.points }}
+  base-grade:
+    description: The grade of the base, or empty when it couldn't be scanned.
+    value: ${{ steps.diff.outputs.base-grade }}
+  touched:
+    description: true when the pull request changes agent configuration.
+    value: ${{ steps.diff.outputs.touched }}
+runs:
+  using: composite
+  steps:
+    - name: Refuse Windows
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        echo "Deedglass scan runs on Linux and macOS runners." >&2
+        exit 1
+    - name: Download deedglass and check its sha256
+      shell: bash
+      env:
+        DG_VERSION: ${{ inputs.version }}
+        DG_ACTION_PATH: ${{ github.action_path }}
+      run: node "$DG_ACTION_PATH/src/install.mjs"
+    - name: Scan head and base
+      id: scan
+      shell: bash
+      env:
+        DG_DIR: ${{ inputs.dir }}
+        DG_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        set -euo pipefail
+        out="$RUNNER_TEMP/deedglass"
+        mkdir -p "$out"
+        "$out/bin/deedglass" scan --ci --dir "$DG_DIR" --format json,sarif --out-dir "$out/head" > /dev/null || true
+        cp "$out/head/deedglass-scan.json" "$out/head.json" 2>/dev/null || true
+        if [ -n "${DG_BASE_SHA:-}" ] && git cat-file -e "$DG_BASE_SHA" 2>/dev/null; then
+          git worktree add --detach "$RUNNER_TEMP/base" "$DG_BASE_SHA" >/dev/null 2>&1
+          (cd "$RUNNER_TEMP/base" && "$out/bin/deedglass" --json scan --ci --dir "$DG_DIR" > "$out/base.json") || rm -f "$out/base.json"
+          git worktree remove --force "$RUNNER_TEMP/base" >/dev/null 2>&1 || true
+          git diff --name-only "$DG_BASE_SHA" HEAD > "$out/changed.txt" || true
+        else
+          echo "○ The base commit isn't in this checkout (use fetch-depth: 0), so only head was scanned." >> "$GITHUB_STEP_SUMMARY"
+          : > "$out/changed.txt"
+        fi
+    - name: Compare and summarise
+      id: diff
+      shell: bash
+      env:
+        DG_ACTION_PATH: ${{ github.action_path }}
+        DG_LICENCE: ${{ inputs.licence }}
+        DG_PRIVATE: ${{ github.event.repository.private }}
+      run: node "$DG_ACTION_PATH/src/diff.mjs"
+    - name: Upload SARIF
+      if: inputs.sarif != 'never' && steps.diff.outputs.sarif == 'true'
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      continue-on-error: ${{ inputs.sarif == 'auto' }}
+      with:
+        sarif_file: ${{ runner.temp }}/deedglass/head/deedglass-scan.sarif
+        category: deedglass-scan
+    - name: Upload the result for the comment workflow
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: deedglass-scan
+        path: ${{ runner.temp }}/deedglass/result.json
+        retention-days: 3
+        if-no-files-found: error
+    - name: Apply fail-under
+      if: inputs.fail-under != ''
+      shell: bash
+      env:
+        DG_FAIL_UNDER: ${{ inputs.fail-under }}
+        DG_GRADE: ${{ steps.diff.outputs.grade }}
+      run: |
+        order="ABCDF"
+        g="${order%%"$DG_GRADE"*}"; f="${order%%"$DG_FAIL_UNDER"*}"
+        if [ "${#g}" -gt "${#f}" ]; then
+          echo "✕ Grade $DG_GRADE is below $DG_FAIL_UNDER." >&2
+          exit 1
+        fi

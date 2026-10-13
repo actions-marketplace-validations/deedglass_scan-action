@@ -1,0 +1,30 @@
+name: Deedglass scan comment
+description: The workflow_run half of Deedglass scan. Posts or edits one comment on the pull request in this repository. Never checks out pull request code.
+author: Deedglass
+branding:
+  icon: shield
+  color: purple
+runs:
+  using: composite
+  steps:
+    - name: Download the scan result (data only, validated before use)
+      if: github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: deedglass-scan
+        run-id: ${{ github.event.workflow_run.id }}
+        github-token: ${{ github.token }}
+        path: ${{ runner.temp }}/dg-artifact
+    - name: Comment
+      if: github.event.workflow_run.event == 'pull_request' && (github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure')
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        DG_ACTION_PATH: ${{ github.action_path }}
+        DG_RUN_ID: ${{ github.event.workflow_run.id }}
+        DG_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        DG_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        DG_HEAD_OWNER: ${{ github.event.workflow_run.head_repository.owner.login }}
+        DG_PRS: ${{ toJSON(github.event.workflow_run.pull_requests) }}
+        DG_PRIVATE: ${{ github.event.repository.private }}
+      run: node "$DG_ACTION_PATH/../src/comment.mjs"

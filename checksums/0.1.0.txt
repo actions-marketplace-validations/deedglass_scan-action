@@ -1,0 +1,2 @@
+# sha256 of the deedglass 0.1.0 release archives, committed when this action is released.
+# The action refuses a version with no line here. Filled from the GitHub release checksums.txt.
